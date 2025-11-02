@@ -1,5 +1,13 @@
 #include "torproxy.h"
 
+// Helper function to check if address is a hostname (not an IP)
+static int is_hostname(const struct sockaddr_in *addr) {
+    // If the address is in the private/local range, it's likely resolved
+    // For SOCKS4a, we want to send hostnames to Tor for DNS resolution
+    // This is a simplified check - in practice, we'd need to track original hostnames
+    return 0; // For now, always use IP (SOCKS4)
+}
+
 // SOCKS4 request (IP only)
 req *request_with_ip(const char *ip, uint16_t port) {
     req *r = malloc(reqSize);
@@ -51,19 +59,33 @@ req *request_with_hostname(const char *hostname, uint16_t port) {
 int connect(int s2, const struct sockaddr *sock2, socklen_t addrlen) {
     int s;
     struct sockaddr_in proxy_addr;
-    req *r;
+    req *r = NULL;
     res *rp;
     char buf[512];
     int success;
+    size_t req_len;
 
     // Original connect() pointer
     int (*real_connect)(int, const struct sockaddr*, socklen_t);
     real_connect = dlsym(RTLD_NEXT, "connect");
+    if (!real_connect) {
+        fprintf(stderr, "[-] Failed to load original connect(): %s\n", dlerror());
+        errno = ENOSYS;
+        return -1;
+    }
+
+    // Only intercept IPv4 TCP connections
+    if (sock2->sa_family != AF_INET) {
+        return real_connect(s2, sock2, addrlen);
+    }
 
     // Extract target info
     struct sockaddr_in *target = (struct sockaddr_in *)sock2;
     char ip_str[INET_ADDRSTRLEN];
-    inet_ntop(AF_INET, &(target->sin_addr), ip_str, sizeof(ip_str));
+    if (!inet_ntop(AF_INET, &(target->sin_addr), ip_str, sizeof(ip_str))) {
+        perror("inet_ntop");
+        return -1;
+    }
     uint16_t target_port = ntohs(target->sin_port);
 
     // Create socket to Tor proxy
@@ -77,6 +99,13 @@ int connect(int s2, const struct sockaddr *sock2, socklen_t addrlen) {
     proxy_addr.sin_family = AF_INET;
     proxy_addr.sin_port = htons(PROXYPORT);
     proxy_addr.sin_addr.s_addr = inet_addr(PROXY);
+    
+    if (proxy_addr.sin_addr.s_addr == INADDR_NONE) {
+        fprintf(stderr, "[-] Invalid proxy address: %s\n", PROXY);
+        close(s);
+        errno = EINVAL;
+        return -1;
+    }
 
     if (real_connect(s, (struct sockaddr *)&proxy_addr, sizeof(proxy_addr)) < 0) {
         perror("connect proxy");
@@ -86,25 +115,45 @@ int connect(int s2, const struct sockaddr *sock2, socklen_t addrlen) {
 
     printf("[+] Connected to Tor proxy %s:%d\n", PROXY, PROXYPORT);
 
-    // Decide: IP or hostname? Here we always send IP (SOCKS4).
-    // Note: ip_str holds dotted-quad from target->sin_addr
-    printf("[+] Using SOCKS4 (IP = %s)\n", ip_str);
+    // Use SOCKS4 with IP address
+    // Note: For true SOCKS4a with hostname resolution, we'd need to intercept
+    // getaddrinfo/gethostbyname and preserve the original hostname
+    printf("[+] Using SOCKS4 (IP = %s, Port = %d)\n", ip_str, target_port);
     r = request_with_ip(ip_str, target_port);
+    if (!r) {
+        fprintf(stderr, "[-] Failed to create SOCKS request\n");
+        close(s);
+        errno = ENOMEM;
+        return -1;
+    }
 
     // Send request
-    size_t req_len = reqSize;
+    req_len = reqSize;
 
-    if (write(s, r, req_len) < 0) {
+    ssize_t written = write(s, r, req_len);
+    if (written < 0) {
         perror("write");
         free(r);
         close(s);
         return -1;
     }
+    if ((size_t)written != req_len) {
+        fprintf(stderr, "[-] Incomplete write to proxy: %zd/%zu bytes\n", written, req_len);
+        free(r);
+        close(s);
+        errno = EIO;
+        return -1;
+    }
 
     // Read response
     memset(buf, 0, sizeof(buf));
-    if (read(s, buf, sizeof(res)) < 1) {
-        perror("read");
+    ssize_t nread = read(s, buf, sizeof(res));
+    if (nread < (ssize_t)sizeof(res)) {
+        if (nread < 0) {
+            perror("read");
+        } else {
+            fprintf(stderr, "[-] Incomplete response from proxy: %zd bytes\n", nread);
+        }
         free(r);
         close(s);
         return -1;
@@ -114,16 +163,31 @@ int connect(int s2, const struct sockaddr *sock2, socklen_t addrlen) {
     success = (rp->cmd == 90);
 
     if (!success) {
-        fprintf(stderr, "[-] Proxy connection failed, error code: %d\n", rp->cmd);
+        const char *error_msg;
+        switch (rp->cmd) {
+            case 91: error_msg = "Request rejected or failed"; break;
+            case 92: error_msg = "Request rejected: SOCKS server cannot connect to identd"; break;
+            case 93: error_msg = "Request rejected: client and identd report different user-ids"; break;
+            default: error_msg = "Unknown error"; break;
+        }
+        fprintf(stderr, "[-] Proxy connection failed (code %d): %s\n", rp->cmd, error_msg);
         free(r);
         close(s);
+        errno = ECONNREFUSED;
         return -1;
     }
 
     printf("[+] Proxy connection established via Tor\n");
 
     // Replace original socket with proxy socket
-    dup2(s, s2);
+    if (dup2(s, s2) < 0) {
+        perror("dup2");
+        free(r);
+        close(s);
+        return -1;
+    }
+    
+    close(s);
     free(r);
 
     return 0;

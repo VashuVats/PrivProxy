@@ -1,0 +1,30 @@
+# Compiled binaries
+*.o
+*.so
+macChanger/macChange
+torproxy/torproxy.so
+
+# Docker files (not needed for Kali)
+docker-compose.yml
+Dockerfile
+entrypoint.sh
+
+# IDE settings
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Old files
+torproxy/old/
+structure.md
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*~
+*.swp
+*.swo

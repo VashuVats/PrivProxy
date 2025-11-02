@@ -1,0 +1,33 @@
+# Tor configuration for native Kali Linux installation
+# DNS resolution through Tor network
+
+# SOCKS proxy settings
+SocksPort 9050
+SocksPolicy accept 127.0.0.1
+SocksPolicy accept 192.168.0.0/16
+SocksPolicy reject *
+
+# DNS settings - route DNS through Tor
+DNSPort 9053
+DNSListenAddress 127.0.0.1
+AutomapHostsOnResolve 1
+AutomapHostsSuffixes .exit,.onion
+
+# Logging (Kali default paths)
+Log notice file /var/log/tor/notices.log
+
+# Security settings
+SafeLogging 1
+WarnUnsafeSocks 0
+
+# Performance settings
+MaxCircuitDirtiness 600
+NewCircuitPeriod 30
+MaxOnionsPending 96
+MaxClientCircuitsPending 32
+
+# Exit policy - allow all outbound connections
+ExitPolicy accept *:*
+
+# Disable client features we don't need
+ClientOnly 1

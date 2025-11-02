@@ -1,8 +1,9 @@
-all:
-	gcc torproxy.c -o torproxy
-	gcc torproxylib.c -o torproxy.so -fPIC -shared  -ldl  -D_GNU_SOURCE
+all: torproxy.so
+
+torproxy.so: torproxylib.c torproxy.h
+	gcc torproxylib.c -o torproxy.so -fPIC -shared -ldl -D_GNU_SOURCE -Wall
 
 clean:
-	rm -f torproxy torproxy.so
+	rm -f torproxy.so *.o
 
 
