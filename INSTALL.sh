@@ -49,12 +49,24 @@ apt-get update -qq
 apt-get install -y tor build-essential gcc make curl netcat-openbsd > /dev/null 2>&1
 
 echo -e "${GREEN}[2/5]${NC} Building MAC changer..."
+if [ ! -d "macChanger" ]; then
+    echo -e "${RED}[ERROR]${NC} macChanger directory not found. Run from project root."
+    exit 1
+fi
 cd macChanger && make clean && make > /dev/null 2>&1 && cd ..
 
 echo -e "${GREEN}[3/5]${NC} Building Tor proxy library..."
+if [ ! -d "torproxy" ]; then
+    echo -e "${RED}[ERROR]${NC} torproxy directory not found. Run from project root."
+    exit 1
+fi
 cd torproxy && make clean && make > /dev/null 2>&1 && cd ..
 
 echo -e "${GREEN}[4/5]${NC} Configuring Tor..."
+if [ ! -f "torrc" ]; then
+    echo -e "${RED}[ERROR]${NC} torrc file not found. Run from project root."
+    exit 1
+fi
 systemctl stop tor 2>/dev/null || true
 cp torrc /etc/tor/torrc
 mkdir -p /var/log/tor

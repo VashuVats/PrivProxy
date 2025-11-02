@@ -7,6 +7,7 @@
 #include <netinet/in.h>
 #include <dlfcn.h>
 #include <netdb.h>
+#include <errno.h>
 // ---------------------------
 // Proxy settings
 // ---------------------------
@@ -49,16 +50,7 @@ typedef struct proxy_response res;
 // ---------------------------
 // Function prototypes
 // ---------------------------
-req *request(const char *dstip , const int dstport);
-
-
-int main(int , char**);
-
-int connect(int, const struct sockaddr*,socklen_t);
-
-
-
-req *request(struct sockaddr_in*);
+int connect(int, const struct sockaddr*, socklen_t);
 
 req *request_with_ip(const char *ip, uint16_t port);
 req *request_with_hostname(const char *hostname, uint16_t port);
